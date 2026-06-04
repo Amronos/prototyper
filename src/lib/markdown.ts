@@ -14,7 +14,7 @@ function escapeAttribute(value: string) {
 function renderInlineMarkdown(value: string) {
 	return escapeHtml(value)
 		.replace(
-			/!\[([^\]]*)\]\(((?:https?:\/\/|data:image\/)[^\s)]+)\)/g,
+			/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,
 			(_match, alt: string, url: string) =>
 				`<img src="${escapeAttribute(url)}" alt="${escapeAttribute(alt)}" loading="lazy" />`
 		)
