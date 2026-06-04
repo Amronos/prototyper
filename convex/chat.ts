@@ -155,14 +155,13 @@ export const listThreadMessages = query({
 					{
 						id: message._id,
 						role,
-						text,
-						createdAt: message._creationTime
+						text
 					}
 				];
 			})
 			.reverse();
 
-		return messages.map(stripMessageCreatedAt);
+		return messages;
 	}
 });
 
@@ -241,19 +240,6 @@ export const setThreadImageGenerationStatus = internalMutation({
 		return null;
 	}
 });
-
-function stripMessageCreatedAt(message: {
-	id: string;
-	role: 'assistant' | 'user';
-	text: string;
-	createdAt: number;
-}) {
-	return {
-		id: message.id,
-		role: message.role,
-		text: message.text
-	};
-}
 
 async function collectThreadFileIds(ctx: ActionCtx, threadId: string) {
 	const fileIds = new Set<string>();
