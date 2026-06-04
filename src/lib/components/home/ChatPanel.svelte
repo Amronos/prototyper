@@ -8,6 +8,7 @@
 	type Props = {
 		hasActiveThread: boolean;
 		isAuthenticated: boolean;
+		isGeneratingImage: boolean;
 		isLoadingMessages: boolean;
 		isSendingMessage: boolean;
 		messages: ChatMessage[];
@@ -17,6 +18,7 @@
 	let {
 		hasActiveThread,
 		isAuthenticated,
+		isGeneratingImage,
 		isLoadingMessages,
 		isSendingMessage,
 		messages,
@@ -57,7 +59,7 @@
 
 	async function submit() {
 		const prompt = draft.trim();
-		if (!prompt || isSendingMessage) {
+		if (!prompt || isSendingMessage || isGeneratingImage) {
 			return;
 		}
 
@@ -102,7 +104,15 @@
 					</div>
 				{/each}
 
-				{#if isSendingMessage}
+				{#if isGeneratingImage}
+					<div class="flex justify-start">
+						<div
+							class="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm"
+						>
+							Generating...
+						</div>
+					</div>
+				{:else if isSendingMessage}
 					<div class="flex justify-start">
 						<div
 							class="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm"
@@ -116,7 +126,7 @@
 	</div>
 
 	<div
-		class="shrink-0 bg-gradient-to-t from-[#f3f4f6] via-[#f3f4f6] to-transparent px-6 pt-3 pb-5 sm:px-8"
+		class="shrink-0 bg-linear-to-t from-[#f3f4f6] via-[#f3f4f6] to-transparent px-6 pt-3 pb-5 sm:px-8"
 	>
 		<div class="mx-auto max-w-3xl">
 			<form
@@ -136,12 +146,12 @@
 						onkeydown={handleComposerKeydown}
 						rows="1"
 						placeholder="Describe the product, constraints, or questions..."
-						disabled={!isAuthenticated || isSendingMessage}
-						class="max-h-[200px] min-h-[2.5rem] flex-1 resize-none self-center bg-transparent px-2 py-2 text-sm leading-6 text-slate-900 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
+						disabled={!isAuthenticated || isSendingMessage || isGeneratingImage}
+						class="max-h-50 min-h-10 flex-1 resize-none self-center bg-transparent px-2 py-2 text-sm leading-6 text-slate-900 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
 					></textarea>
 					<button
 						type="submit"
-						disabled={!isAuthenticated || !draft.trim() || isSendingMessage}
+						disabled={!isAuthenticated || !draft.trim() || isSendingMessage || isGeneratingImage}
 						class="inline-flex h-9 shrink-0 items-center rounded-xl bg-[#0d3b3b] px-4 text-sm font-semibold text-white transition hover:bg-[#114848] disabled:cursor-not-allowed disabled:bg-slate-300"
 					>
 						{isSendingMessage ? 'Sending...' : 'Send'}
