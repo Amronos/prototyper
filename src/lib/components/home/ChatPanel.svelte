@@ -3,6 +3,7 @@
 
 	import { renderMarkdown } from '$lib/markdown';
 
+	import ImageViewer from './ImageViewer.svelte';
 	import type { ChatMessage } from './types.js';
 
 	type Props = {
@@ -28,6 +29,17 @@
 	let draft = $state('');
 	let messageListElement = $state<HTMLDivElement | null>(null);
 	let composerElement = $state<HTMLTextAreaElement | null>(null);
+	let viewerImage = $state<{ alt: string; src: string } | null>(null);
+
+	function handleMarkdownClick(event: MouseEvent) {
+		const target = event.target;
+		if (!(target instanceof HTMLImageElement)) {
+			return;
+		}
+
+		event.preventDefault();
+		viewerImage = { alt: target.alt, src: target.currentSrc || target.src };
+	}
 
 	const MAX_COMPOSER_HEIGHT = 200;
 
@@ -93,7 +105,9 @@
 							}`}
 						>
 							{#if message.role === 'assistant'}
-								<div class="markdown-body">
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<div class="markdown-body" onclick={handleMarkdownClick}>
 									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 									{@html renderMarkdown(message.text)}
 								</div>
@@ -161,3 +175,7 @@
 		</div>
 	</div>
 </section>
+
+{#if viewerImage}
+	<ImageViewer alt={viewerImage.alt} src={viewerImage.src} onClose={() => (viewerImage = null)} />
+{/if}
