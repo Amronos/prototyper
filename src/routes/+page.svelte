@@ -35,7 +35,7 @@
 	const messagesQuery = useQuery(api.chat.listThreadMessages, () =>
 		$authState.isAuthenticated && selectedThreadId ? { threadId: selectedThreadId } : 'skip'
 	);
-	const streamListQuery = useQuery(api.chat.listThreadMessages, () =>
+	const streamListQuery = useQuery(api.chat.syncThreadStreams, () =>
 		$authState.isAuthenticated && selectedThreadId
 			? {
 					threadId: selectedThreadId,
@@ -51,10 +51,10 @@
 	const messages = $derived.by<ChatMessage[]>(() => messagesQuery.data?.messages ?? []);
 	const isGeneratingImage = $derived.by<boolean>(() => imageGenerationStatusQuery.data ?? false);
 	const activeStreams = $derived.by<StreamMessage[]>(() => {
-		const streams = streamListQuery.data?.streams;
+		const streams = streamListQuery.data;
 		return streams?.kind === 'list' ? streams.messages : [];
 	});
-	const streamDeltasQuery = useQuery(api.chat.listThreadMessages, () => {
+	const streamDeltasQuery = useQuery(api.chat.syncThreadStreams, () => {
 		if (!$authState.isAuthenticated || !selectedThreadId || activeStreams.length === 0) {
 			return 'skip';
 		}
@@ -169,7 +169,7 @@
 	$effect(() => {
 		const threadId = selectedThreadId;
 		const streams = activeStreams;
-		const streamDeltas = streamDeltasQuery.data?.streams;
+		const streamDeltas = streamDeltasQuery.data;
 		if (!threadId || !streamDeltas || streamDeltas.kind !== 'deltas') {
 			return;
 		}

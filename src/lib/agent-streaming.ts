@@ -19,7 +19,7 @@ function joinText(parts: UIMessage['parts']) {
 		.filter((part) => part.type === 'text')
 		.map((part) => part.text)
 		.filter(Boolean)
-		.join(' ');
+		.join('');
 }
 
 function streamStatusToMessageStatus(status: StreamMessage['status']) {

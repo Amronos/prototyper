@@ -192,6 +192,34 @@ export const listThreadMessages = query({
 	}
 });
 
+export const syncThreadStreams = query({
+	args: {
+		threadId: v.string(),
+		streamArgs: vStreamArgs
+	},
+	returns: v.union(
+		v.object({
+			kind: v.literal('list'),
+			messages: v.array(vStreamMessage)
+		}),
+		v.object({
+			kind: v.literal('deltas'),
+			deltas: v.array(vStreamDelta)
+		}),
+		v.null()
+	),
+	handler: async (ctx, args) => {
+		await assertThreadAccess(ctx, args.threadId);
+
+		return (
+			(await syncStreams(ctx, components.agent, {
+				threadId: args.threadId,
+				streamArgs: args.streamArgs
+			})) ?? null
+		);
+	}
+});
+
 export const getThreadImageGenerationStatus = query({
 	args: {
 		threadId: v.string()
