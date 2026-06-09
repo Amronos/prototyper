@@ -14,6 +14,11 @@ function escapeAttribute(value: string) {
 function renderInlineMarkdown(value: string) {
 	return escapeHtml(value)
 		.replace(
+			/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,
+			(_match, alt: string, url: string) =>
+				`<img src="${escapeAttribute(url)}" alt="${escapeAttribute(alt)}" loading="lazy" />`
+		)
+		.replace(
 			/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
 			(_match, label: string, url: string) =>
 				`<a href="${escapeAttribute(url)}" rel="noreferrer" target="_blank">${label}</a>`

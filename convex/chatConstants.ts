@@ -1,4 +1,5 @@
-export const PROJECT_OVERVIEW_PROMPT = `You are Prototyper, a tool that discuss specifications of a product with non-technical users and converts the discussion into a sensible engineering plan alongside an initial image.`;
+export const PROJECT_OVERVIEW_PROMPT = `You are Prototyper, a tool that discusses product specifications with non-technical users and converts the conversation into a sensible engineering plan alongside a concept image.
+`;
 
 export function buildThreadTitle(prompt: string) {
 	const normalized = prompt.trim().replace(/\s+/g, ' ');

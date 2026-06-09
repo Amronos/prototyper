@@ -66,6 +66,19 @@
 		event.stopPropagation();
 	}
 
+	function handleMenuKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			closeContextMenu();
+			return;
+		}
+
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			event.stopPropagation();
+		}
+	}
+
 	function deleteThreadFromContextMenu() {
 		if (!contextMenu) {
 			return;
@@ -160,6 +173,7 @@
 			style:top={`${contextMenu.y}px`}
 			onclick={stopClickPropagation}
 			oncontextmenu={handleMenuContextMenu}
+			onkeydown={handleMenuKeydown}
 			role="menu"
 			aria-label="Thread actions"
 			tabindex="-1"

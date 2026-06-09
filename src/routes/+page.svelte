@@ -26,9 +26,13 @@
 	const messagesQuery = useQuery(api.chat.listThreadMessages, () =>
 		$authState.isAuthenticated && selectedThreadId ? { threadId: selectedThreadId } : 'skip'
 	);
+	const imageGenerationStatusQuery = useQuery(api.chat.getThreadImageGenerationStatus, () =>
+		$authState.isAuthenticated && selectedThreadId ? { threadId: selectedThreadId } : 'skip'
+	);
 
 	const threads = $derived.by<ChatThread[]>(() => threadsQuery.data ?? []);
 	const messages = $derived.by<ChatMessage[]>(() => messagesQuery.data ?? []);
+	const isGeneratingImage = $derived.by<boolean>(() => imageGenerationStatusQuery.data ?? false);
 	const displayedMessages = $derived.by<ChatMessage[]>(() => {
 		if (!selectedThreadId) {
 			return messages;
@@ -144,7 +148,7 @@
 		isDeletingThreadId = threadId;
 
 		try {
-			await convex.mutation(api.chat.deleteChatThread, { threadId });
+			await convex.action(api.chat.deleteChatThread, { threadId });
 
 			if (selectedThreadId === threadId) {
 				isDraftThread = false;
@@ -231,6 +235,7 @@
 		<ChatPanel
 			hasActiveThread={selectedThreadId !== null}
 			isAuthenticated={$authState.isAuthenticated}
+			{isGeneratingImage}
 			isLoadingMessages={$authState.isAuthenticated &&
 				selectedThreadId !== null &&
 				messagesQuery.isLoading}

@@ -1,8 +1,9 @@
 import { createThread, listMessages } from '@convex-dev/agent';
 import { v } from 'convex/values';
 
-import { components } from './_generated/api';
-import { mutation, query } from './_generated/server';
+import { components, internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
+import { action, internalMutation, mutation, query, type ActionCtx } from './_generated/server';
 import { buildThreadSummary, buildThreadTitle } from './chatConstants';
 import { assertThreadAccess, getAuthenticatedIdentity } from './chatHelpers';
 
@@ -76,17 +77,40 @@ export const createChatThread = mutation({
 	}
 });
 
-export const deleteChatThread = mutation({
+export const deleteChatThread = action({
 	args: {
 		threadId: v.string()
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
 		await assertThreadAccess(ctx, args.threadId);
-
-		await ctx.runMutation(components.agent.threads.deleteAllForThreadIdAsync, {
+		const fileIds = await collectThreadFileIds(ctx, args.threadId);
+		await ctx.runMutation(internal.chat.deleteThreadImageGenerationStatus, {
 			threadId: args.threadId
 		});
+
+		await ctx.runAction(components.agent.threads.deleteAllForThreadIdSync, {
+			threadId: args.threadId
+		});
+		await deleteUnreferencedFiles(ctx, fileIds);
+
+		return null;
+	}
+});
+
+export const deleteThreadImageGenerationStatus = internalMutation({
+	args: {
+		threadId: v.string()
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const status = await ctx.db
+			.query('threadImageGenerationStatuses')
+			.withIndex('by_threadId', (q) => q.eq('threadId', args.threadId))
+			.first();
+		if (status) {
+			await ctx.db.delete(status._id);
+		}
 
 		return null;
 	}
@@ -115,14 +139,14 @@ export const listThreadMessages = query({
 			}
 		});
 
-		return page
+		const messages = page
 			.flatMap((message) => {
 				const role = message.message?.role;
-				if ((role !== 'user' && role !== 'assistant') || typeof message.text !== 'string') {
+				if (role !== 'user' && role !== 'assistant') {
 					return [];
 				}
 
-				const text = message.text.trim();
+				const text = typeof message.text === 'string' ? message.text.trim() : '';
 				if (!text) {
 					return [];
 				}
@@ -136,6 +160,25 @@ export const listThreadMessages = query({
 				];
 			})
 			.reverse();
+
+		return messages;
+	}
+});
+
+export const getThreadImageGenerationStatus = query({
+	args: {
+		threadId: v.string()
+	},
+	returns: v.boolean(),
+	handler: async (ctx, args) => {
+		await assertThreadAccess(ctx, args.threadId);
+
+		const status = await ctx.db
+			.query('threadImageGenerationStatuses')
+			.withIndex('by_threadId', (q) => q.eq('threadId', args.threadId))
+			.first();
+
+		return status?.isGenerating ?? false;
 	}
 });
 
@@ -167,3 +210,87 @@ export const updateThreadFromPrompt = mutation({
 		return null;
 	}
 });
+
+export const setThreadImageGenerationStatus = internalMutation({
+	args: {
+		threadId: v.string(),
+		isGenerating: v.boolean()
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const existingStatus = await ctx.db
+			.query('threadImageGenerationStatuses')
+			.withIndex('by_threadId', (q) => q.eq('threadId', args.threadId))
+			.first();
+
+		if (existingStatus) {
+			await ctx.db.patch(existingStatus._id, {
+				isGenerating: args.isGenerating,
+				updatedAt: Date.now()
+			});
+			return null;
+		}
+
+		await ctx.db.insert('threadImageGenerationStatuses', {
+			threadId: args.threadId,
+			isGenerating: args.isGenerating,
+			updatedAt: Date.now()
+		});
+
+		return null;
+	}
+});
+
+async function collectThreadFileIds(ctx: ActionCtx, threadId: string) {
+	const fileIds = new Set<string>();
+	let cursor: string | null = null;
+
+	while (true) {
+		const { page, continueCursor, isDone } = await listMessages(ctx, components.agent, {
+			threadId,
+			excludeToolMessages: false,
+			paginationOpts: {
+				cursor,
+				numItems: 100
+			}
+		});
+		for (const message of page) {
+			for (const fileId of message.fileIds ?? []) {
+				fileIds.add(fileId);
+			}
+		}
+		if (isDone) {
+			break;
+		}
+		cursor = continueCursor;
+	}
+
+	return [...fileIds];
+}
+
+async function deleteUnreferencedFiles(ctx: ActionCtx, fileIds: string[]) {
+	const filesToDelete: Array<{ fileId: string; storageId: Id<'_storage'> }> = [];
+	for (const fileId of fileIds) {
+		const file = await ctx.runQuery(components.agent.files.get, { fileId });
+		if (file && file.refcount === 0) {
+			filesToDelete.push({
+				fileId,
+				storageId: file.storageId as Id<'_storage'>
+			});
+		}
+	}
+	if (filesToDelete.length === 0) {
+		return;
+	}
+
+	const deletedFileIds = new Set(
+		await ctx.runMutation(components.agent.files.deleteFiles, {
+			fileIds: filesToDelete.map((file) => file.fileId)
+		})
+	);
+	for (const file of filesToDelete) {
+		if (deletedFileIds.has(file.fileId)) {
+			await ctx.storage.delete(file.storageId);
+		}
+	}
+}
