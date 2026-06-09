@@ -119,8 +119,7 @@ export const deleteThreadImageGenerationStatus = internalMutation({
 
 export const listThreadMessages = query({
 	args: {
-		threadId: v.string(),
-		streamArgs: vStreamArgs
+		threadId: v.string()
 	},
 	returns: v.object({
 		messages: v.array(
@@ -132,18 +131,6 @@ export const listThreadMessages = query({
 				stepOrder: v.number(),
 				status: v.string()
 			})
-		),
-		streams: v.optional(
-			v.union(
-				v.object({
-					kind: v.literal('list'),
-					messages: v.array(vStreamMessage)
-				}),
-				v.object({
-					kind: v.literal('deltas'),
-					deltas: v.array(vStreamDelta)
-				})
-			)
 		)
 	}),
 	handler: async (ctx, args) => {
@@ -183,12 +170,7 @@ export const listThreadMessages = query({
 			})
 			.reverse();
 
-		const streams = await syncStreams(ctx, components.agent, {
-			threadId: args.threadId,
-			streamArgs: args.streamArgs
-		});
-
-		return streams ? { messages, streams } : { messages };
+		return { messages };
 	}
 });
 

@@ -249,6 +249,9 @@
 			streams.map((stream) => streamToChatMessage(stream, deltasByStreamId[stream.streamId] ?? []))
 		);
 		const visibleMessages = messages.filter((message) => message !== null);
+		if (streamDeltasByThreadId[threadId] !== deltasByStreamId) {
+			return;
+		}
 
 		streamedMessagesByThreadId = {
 			...streamedMessagesByThreadId,
