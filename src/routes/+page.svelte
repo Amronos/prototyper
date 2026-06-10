@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { useConvexClient, useQuery } from 'convex-svelte';
+	import type { StreamDelta, StreamMessage } from '@convex-dev/agent/validators';
 
+	import {
+		mergeStreamedChatMessages,
+		sortChatMessages,
+		streamToChatMessage
+	} from '$lib/agent-streaming';
 	import { authState, signIn, signOut } from '$lib/auth';
 	import AppSidebar from '$lib/components/home/AppSidebar.svelte';
 	import ChatPanel from '$lib/components/home/ChatPanel.svelte';
@@ -18,6 +24,9 @@
 	let isDraftThread = $state(false);
 	let pendingMessagesByThreadId = $state<Record<string, PendingMessage>>({});
 	let selectedThreadId = $state<string | null>(null);
+	let streamCursorsByThreadId = $state<Record<string, Record<string, number>>>({});
+	let streamDeltasByThreadId = $state<Record<string, Record<string, StreamDelta[]>>>({});
+	let streamedMessagesByThreadId = $state<Record<string, ChatMessage[]>>({});
 
 	const convex = useConvexClient();
 	const threadsQuery = useQuery(api.chat.listChatThreads, () =>
@@ -26,24 +35,57 @@
 	const messagesQuery = useQuery(api.chat.listThreadMessages, () =>
 		$authState.isAuthenticated && selectedThreadId ? { threadId: selectedThreadId } : 'skip'
 	);
+	const streamListQuery = useQuery(api.chat.syncThreadStreams, () =>
+		$authState.isAuthenticated && selectedThreadId
+			? {
+					threadId: selectedThreadId,
+					streamArgs: { kind: 'list' as const, startOrder: 0 }
+				}
+			: 'skip'
+	);
 	const imageGenerationStatusQuery = useQuery(api.chat.getThreadImageGenerationStatus, () =>
 		$authState.isAuthenticated && selectedThreadId ? { threadId: selectedThreadId } : 'skip'
 	);
 
 	const threads = $derived.by<ChatThread[]>(() => threadsQuery.data ?? []);
-	const messages = $derived.by<ChatMessage[]>(() => messagesQuery.data ?? []);
+	const messages = $derived.by<ChatMessage[]>(() => messagesQuery.data?.messages ?? []);
 	const isGeneratingImage = $derived.by<boolean>(() => imageGenerationStatusQuery.data ?? false);
+	const activeStreams = $derived.by<StreamMessage[]>(() => {
+		const streams = streamListQuery.data;
+		return streams?.kind === 'list' ? streams.messages : [];
+	});
+	const streamDeltasQuery = useQuery(api.chat.syncThreadStreams, () => {
+		if (!$authState.isAuthenticated || !selectedThreadId || activeStreams.length === 0) {
+			return 'skip';
+		}
+
+		const cursors = streamCursorsByThreadId[selectedThreadId] ?? {};
+		return {
+			threadId: selectedThreadId,
+			streamArgs: {
+				kind: 'deltas' as const,
+				cursors: activeStreams.map((stream) => ({
+					streamId: stream.streamId,
+					cursor: cursors[stream.streamId] ?? 0
+				}))
+			}
+		};
+	});
+	const streamedMessages = $derived.by<ChatMessage[]>(() =>
+		selectedThreadId ? (streamedMessagesByThreadId[selectedThreadId] ?? []) : []
+	);
 	const displayedMessages = $derived.by<ChatMessage[]>(() => {
 		if (!selectedThreadId) {
 			return messages;
 		}
 
+		const mergedMessages = mergeStreamedChatMessages(messages, streamedMessages);
 		const pendingMessage = pendingMessagesByThreadId[selectedThreadId];
 		if (!pendingMessage) {
-			return messages;
+			return mergedMessages;
 		}
 
-		return [...messages, pendingMessage.message];
+		return [...mergedMessages, pendingMessage.message];
 	});
 	const isSendingMessage = $derived.by(
 		() => selectedThreadId !== null && selectedThreadId in pendingMessagesByThreadId
@@ -54,6 +96,9 @@
 			isDraftThread = false;
 			pendingMessagesByThreadId = {};
 			selectedThreadId = null;
+			streamCursorsByThreadId = {};
+			streamDeltasByThreadId = {};
+			streamedMessagesByThreadId = {};
 			return;
 		}
 
@@ -92,6 +137,76 @@
 		pendingMessagesByThreadId = remainingPendingMessages;
 	});
 
+	$effect(() => {
+		if (!selectedThreadId) {
+			return;
+		}
+
+		const streamIds = new Set(activeStreams.map((stream) => stream.streamId));
+		if (streamIds.size > 0) {
+			return;
+		}
+
+		if (
+			!streamCursorsByThreadId[selectedThreadId] &&
+			!streamDeltasByThreadId[selectedThreadId] &&
+			!streamedMessagesByThreadId[selectedThreadId]
+		) {
+			return;
+		}
+
+		const remainingCursors = { ...streamCursorsByThreadId };
+		const remainingDeltas = { ...streamDeltasByThreadId };
+		const remainingMessages = { ...streamedMessagesByThreadId };
+		delete remainingCursors[selectedThreadId];
+		delete remainingDeltas[selectedThreadId];
+		delete remainingMessages[selectedThreadId];
+		streamCursorsByThreadId = remainingCursors;
+		streamDeltasByThreadId = remainingDeltas;
+		streamedMessagesByThreadId = remainingMessages;
+	});
+
+	$effect(() => {
+		const threadId = selectedThreadId;
+		const streams = activeStreams;
+		const streamDeltas = streamDeltasQuery.data;
+		if (!threadId || !streamDeltas || streamDeltas.kind !== 'deltas') {
+			return;
+		}
+
+		const currentThreadDeltas = streamDeltasByThreadId[threadId] ?? {};
+		const nextThreadDeltas: Record<string, StreamDelta[]> = { ...currentThreadDeltas };
+		const currentThreadCursors = streamCursorsByThreadId[threadId] ?? {};
+		const nextThreadCursors: Record<string, number> = { ...currentThreadCursors };
+		let hasNewDelta = false;
+
+		for (const delta of streamDeltas.deltas) {
+			const cursor = nextThreadCursors[delta.streamId] ?? 0;
+			if (delta.start < cursor) {
+				continue;
+			}
+
+			nextThreadDeltas[delta.streamId] = [...(nextThreadDeltas[delta.streamId] ?? []), delta];
+			nextThreadCursors[delta.streamId] = delta.end;
+			hasNewDelta = true;
+		}
+
+		if (!hasNewDelta) {
+			return;
+		}
+
+		streamDeltasByThreadId = {
+			...streamDeltasByThreadId,
+			[threadId]: nextThreadDeltas
+		};
+		streamCursorsByThreadId = {
+			...streamCursorsByThreadId,
+			[threadId]: nextThreadCursors
+		};
+
+		void rebuildStreamedMessages(threadId, streams, nextThreadDeltas);
+	});
+
 	function toErrorMessage(error: unknown) {
 		if (error instanceof Error) return error.message;
 		if (typeof error === 'string') return error;
@@ -111,10 +226,36 @@
 				message: {
 					id: `optimistic:${threadId}`,
 					role: 'user',
-					text: prompt
+					text: prompt,
+					order: nextMessageOrder(),
+					stepOrder: 0,
+					status: 'pending'
 				},
 				replaceAfterMessageCount: messages.length
 			}
+		};
+	}
+
+	function nextMessageOrder() {
+		return Math.max(0, ...messages.map((message) => message.order)) + 1;
+	}
+
+	async function rebuildStreamedMessages(
+		threadId: string,
+		streams: StreamMessage[],
+		deltasByStreamId: Record<string, StreamDelta[]>
+	) {
+		const messages = await Promise.all(
+			streams.map((stream) => streamToChatMessage(stream, deltasByStreamId[stream.streamId] ?? []))
+		);
+		const visibleMessages = messages.filter((message) => message !== null);
+		if (streamDeltasByThreadId[threadId] !== deltasByStreamId) {
+			return;
+		}
+
+		streamedMessagesByThreadId = {
+			...streamedMessagesByThreadId,
+			[threadId]: sortChatMessages(visibleMessages)
 		};
 	}
 
@@ -156,6 +297,15 @@
 			}
 
 			clearPendingMessage(threadId);
+			streamCursorsByThreadId = Object.fromEntries(
+				Object.entries(streamCursorsByThreadId).filter(([id]) => id !== threadId)
+			);
+			streamDeltasByThreadId = Object.fromEntries(
+				Object.entries(streamDeltasByThreadId).filter(([id]) => id !== threadId)
+			);
+			streamedMessagesByThreadId = Object.fromEntries(
+				Object.entries(streamedMessagesByThreadId).filter(([id]) => id !== threadId)
+			);
 		} catch (error) {
 			errorMessage = toErrorMessage(error);
 		} finally {

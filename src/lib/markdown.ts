@@ -52,7 +52,11 @@ function renderBlock(block: string) {
 			.join('<br>')}</p></blockquote>`;
 	}
 
-	const headingMatch = lines.length === 1 ? lines[0].match(/^(#{1,3})\s+(.*)$/) : null;
+	if (lines.length === 1 && /^---+$/.test(lines[0].trim())) {
+		return '<hr>';
+	}
+
+	const headingMatch = lines.length === 1 ? lines[0].match(/^(#{1,6})\s+(.*)$/) : null;
 	if (headingMatch) {
 		const level = headingMatch[1].length;
 		return `<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`;
@@ -67,10 +71,29 @@ function renderTextBlocks(value: string) {
 		return '';
 	}
 
-	return trimmed
-		.split(/\n{2,}/)
-		.map((block) => renderBlock(block))
-		.join('');
+	const blocks: string[] = [];
+	for (const chunk of trimmed.split(/\n{2,}/)) {
+		const lines = chunk.split('\n');
+		let current: string[] = [];
+
+		for (const line of lines) {
+			if (/^#{1,6}\s+/.test(line) || /^---+$/.test(line.trim())) {
+				if (current.length > 0) {
+					blocks.push(current.join('\n'));
+					current = [];
+				}
+				blocks.push(line);
+			} else {
+				current.push(line);
+			}
+		}
+
+		if (current.length > 0) {
+			blocks.push(current.join('\n'));
+		}
+	}
+
+	return blocks.filter(Boolean).map(renderBlock).join('');
 }
 
 export function renderMarkdown(markdown: string) {

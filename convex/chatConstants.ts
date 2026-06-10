@@ -1,4 +1,5 @@
 export const PROJECT_OVERVIEW_PROMPT = `You are Prototyper, a tool that discusses product specifications with non-technical users and converts the conversation into a sensible engineering plan alongside a concept image.
+Keep on asking the user questions until you have a clear understanding of the product specification unless told otherwise. After this, proceed to creating a detailed engineering plan alongside a concept image.
 `;
 
 export function buildThreadTitle(prompt: string) {

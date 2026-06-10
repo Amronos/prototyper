@@ -7,7 +7,7 @@ import {
 	stepCountIs,
 	type GeneratedFile,
 	type GenerateImageResult,
-	type GenerateTextResult,
+	type StepResult,
 	type ToolSet
 } from 'ai';
 import { v } from 'convex/values';
@@ -119,6 +119,10 @@ const conceptImageTool = createTool<ConceptImageInput, ConceptImageOutput>({
 			type: 'content',
 			value: [
 				{
+					type: 'text',
+					text: `Image generated successfully. Exact image URL that can be attached as markdown: ${output.url}`
+				},
+				{
 					type: 'image-url',
 					url: output.url
 				}
@@ -131,7 +135,7 @@ const chatAgentTools = {
 	generateProductConceptImage: conceptImageTool
 } satisfies ToolSet;
 type ChatAgentTools = typeof chatAgentTools;
-type ChatGenerateTextResult = GenerateTextResult<ChatAgentTools, never>;
+type ChatStepResult = StepResult<ChatAgentTools>;
 
 const chatAgent = new Agent<object, ChatAgentTools>(components.agent, {
 	name: 'Prototyper',
@@ -162,8 +166,21 @@ export const sendMessage = action({
 			threadId: args.threadId,
 			prompt
 		});
-		const result = await chatAgent.generateText(ctx, { threadId: args.threadId }, { prompt });
-		await saveGeneratedConceptImages(ctx, args.threadId, result);
+		const steps: ChatStepResult[] = [];
+		await chatAgent.streamText(
+			ctx,
+			{ threadId: args.threadId },
+			{
+				prompt,
+				onStepFinish: (step) => {
+					steps.push(step);
+				}
+			},
+			{
+				saveStreamDeltas: true
+			}
+		);
+		await saveGeneratedConceptImages(ctx, args.threadId, steps);
 
 		return null;
 	}
@@ -184,9 +201,9 @@ function compositionToSize(composition: ConceptImageComposition) {
 async function saveGeneratedConceptImages(
 	ctx: Parameters<typeof chatAgent.saveMessage>[0],
 	threadId: string,
-	result: ChatGenerateTextResult
+	steps: ChatStepResult[]
 ) {
-	for (const image of extractGeneratedConceptImages(result)) {
+	for (const image of extractGeneratedConceptImages(steps)) {
 		await chatAgent.saveMessage(ctx, {
 			threadId,
 			skipEmbeddings: true,
@@ -207,8 +224,8 @@ async function saveGeneratedConceptImages(
 	}
 }
 
-function extractGeneratedConceptImages(result: ChatGenerateTextResult): ConceptImageSuccess[] {
-	return result.steps.flatMap((step) =>
+function extractGeneratedConceptImages(steps: ChatStepResult[]): ConceptImageSuccess[] {
+	return steps.flatMap((step) =>
 		step.staticToolResults.flatMap((toolResult) => {
 			if (toolResult.toolName !== 'generateProductConceptImage') {
 				return [];

@@ -1,4 +1,5 @@
-import { createThread, listMessages } from '@convex-dev/agent';
+import { createThread, listMessages, syncStreams, vStreamArgs } from '@convex-dev/agent';
+import { vStreamDelta, vStreamMessage } from '@convex-dev/agent/validators';
 import { v } from 'convex/values';
 
 import { components, internal } from './_generated/api';
@@ -120,13 +121,18 @@ export const listThreadMessages = query({
 	args: {
 		threadId: v.string()
 	},
-	returns: v.array(
-		v.object({
-			id: v.string(),
-			role: v.union(v.literal('user'), v.literal('assistant')),
-			text: v.string()
-		})
-	),
+	returns: v.object({
+		messages: v.array(
+			v.object({
+				id: v.string(),
+				role: v.union(v.literal('user'), v.literal('assistant')),
+				text: v.string(),
+				order: v.number(),
+				stepOrder: v.number(),
+				status: v.string()
+			})
+		)
+	}),
 	handler: async (ctx, args) => {
 		await assertThreadAccess(ctx, args.threadId);
 
@@ -155,13 +161,44 @@ export const listThreadMessages = query({
 					{
 						id: message._id,
 						role,
-						text
+						text,
+						order: message.order,
+						stepOrder: message.stepOrder,
+						status: message.status
 					}
 				];
 			})
 			.reverse();
 
-		return messages;
+		return { messages };
+	}
+});
+
+export const syncThreadStreams = query({
+	args: {
+		threadId: v.string(),
+		streamArgs: vStreamArgs
+	},
+	returns: v.union(
+		v.object({
+			kind: v.literal('list'),
+			messages: v.array(vStreamMessage)
+		}),
+		v.object({
+			kind: v.literal('deltas'),
+			deltas: v.array(vStreamDelta)
+		}),
+		v.null()
+	),
+	handler: async (ctx, args) => {
+		await assertThreadAccess(ctx, args.threadId);
+
+		return (
+			(await syncStreams(ctx, components.agent, {
+				threadId: args.threadId,
+				streamArgs: args.streamArgs
+			})) ?? null
+		);
 	}
 });
 

@@ -9,4 +9,7 @@ export type ChatMessage = {
 	id: string;
 	role: 'assistant' | 'user';
 	text: string;
+	order: number;
+	stepOrder: number;
+	status: string;
 };
